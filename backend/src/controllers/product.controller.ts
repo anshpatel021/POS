@@ -8,7 +8,7 @@ import { logger } from '../utils/logger';
  * Get all products with filtering and pagination
  * GET /api/products
  */
-export const getProducts = asyncHandler(async (req: Request, res: Response) => {
+export const getProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
   const {
     page = 1,
     limit = 20,
@@ -25,6 +25,11 @@ export const getProducts = asyncHandler(async (req: Request, res: Response) => {
 
   // Build filter
   const where: any = {};
+
+  // Filter by user's location (unless SUPER_ADMIN viewing all)
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
 
   if (search) {
     where.OR = [
@@ -95,7 +100,7 @@ export const getProducts = asyncHandler(async (req: Request, res: Response) => {
  * Get single product
  * GET /api/products/:id
  */
-export const getProduct = asyncHandler(async (req: Request, res: Response) => {
+export const getProduct = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const product = await prisma.product.findUnique({
@@ -113,6 +118,11 @@ export const getProduct = asyncHandler(async (req: Request, res: Response) => {
   });
 
   if (!product) {
+    throw new AppError('Product not found', 404);
+  }
+
+  // Verify user has access to this product's location
+  if (req.user?.locationId && product.locationId !== req.user.locationId) {
     throw new AppError('Product not found', 404);
   }
 
@@ -147,6 +157,11 @@ export const createProduct = asyncHandler(async (req: AuthRequest, res: Response
     if (existingBarcode) {
       throw new AppError('Product with this barcode already exists', 400);
     }
+  }
+
+  // Set locationId from authenticated user
+  if (req.user?.locationId) {
+    data.locationId = req.user.locationId;
   }
 
   const product = await prisma.product.create({
@@ -187,6 +202,11 @@ export const updateProduct = asyncHandler(async (req: AuthRequest, res: Response
   const product = await prisma.product.findUnique({ where: { id } });
 
   if (!product) {
+    throw new AppError('Product not found', 404);
+  }
+
+  // Verify user has access to this product's location
+  if (req.user?.locationId && product.locationId !== req.user.locationId) {
     throw new AppError('Product not found', 404);
   }
 
@@ -242,6 +262,11 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Product not found', 404);
   }
 
+  // Verify user has access to this product's location
+  if (req.user?.locationId && product.locationId !== req.user.locationId) {
+    throw new AppError('Product not found', 404);
+  }
+
   await prisma.product.delete({ where: { id } });
 
   // Log activity
@@ -267,15 +292,22 @@ export const deleteProduct = asyncHandler(async (req: AuthRequest, res: Response
  * Get low stock products
  * GET /api/products/low-stock
  */
-export const getLowStockProducts = asyncHandler(async (_req: Request, res: Response) => {
-  const products = await prisma.product.findMany({
-    where: {
-      trackInventory: true,
-      stockQuantity: {
-        lte: prisma.product.fields.lowStockAlert,
-      },
-      isActive: true,
+export const getLowStockProducts = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const where: any = {
+    trackInventory: true,
+    stockQuantity: {
+      lte: prisma.product.fields.lowStockAlert,
     },
+    isActive: true,
+  };
+
+  // Filter by user's location
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
+
+  const products = await prisma.product.findMany({
+    where,
     include: {
       category: {
         select: {
@@ -306,6 +338,11 @@ export const adjustInventory = asyncHandler(async (req: AuthRequest, res: Respon
   const product = await prisma.product.findUnique({ where: { id } });
 
   if (!product) {
+    throw new AppError('Product not found', 404);
+  }
+
+  // Verify user has access to this product's location
+  if (req.user?.locationId && product.locationId !== req.user.locationId) {
     throw new AppError('Product not found', 404);
   }
 
@@ -377,6 +414,11 @@ export const bulkUpdateStock = asyncHandler(async (req: AuthRequest, res: Respon
         throw new AppError(`Product not found: ${productId}`, 404);
       }
 
+      // Verify user has access to this product's location
+      if (req.user?.locationId && product.locationId !== req.user.locationId) {
+        throw new AppError(`Product not found: ${productId}`, 404);
+      }
+
       if (!product.trackInventory) {
         continue; // Skip products that don't track inventory
       }
@@ -437,10 +479,16 @@ export const bulkUpdatePrice = asyncHandler(async (req: AuthRequest, res: Respon
   if (priceUpdate !== undefined) updateData.price = parseFloat(priceUpdate);
   if (costUpdate !== undefined) updateData.cost = parseFloat(costUpdate);
 
+  // Build where clause with location filter
+  const where: any = {
+    id: { in: productIds },
+  };
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
+
   const updatedProducts = await prisma.product.updateMany({
-    where: {
-      id: { in: productIds },
-    },
+    where,
     data: updateData,
   });
 
@@ -479,10 +527,16 @@ export const bulkUpdateCategory = asyncHandler(async (req: AuthRequest, res: Res
     throw new AppError('Category not found', 404);
   }
 
+  // Build where clause with location filter
+  const where: any = {
+    id: { in: productIds },
+  };
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
+
   const updatedProducts = await prisma.product.updateMany({
-    where: {
-      id: { in: productIds },
-    },
+    where,
     data: {
       categoryId,
     },
@@ -515,10 +569,16 @@ export const bulkToggleActive = asyncHandler(async (req: AuthRequest, res: Respo
     throw new AppError('isActive must be a boolean', 400);
   }
 
+  // Build where clause with location filter
+  const where: any = {
+    id: { in: productIds },
+  };
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
+
   const updatedProducts = await prisma.product.updateMany({
-    where: {
-      id: { in: productIds },
-    },
+    where,
     data: {
       isActive,
     },

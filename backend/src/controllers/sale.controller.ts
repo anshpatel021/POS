@@ -231,7 +231,7 @@ export const createSale = asyncHandler(async (req: AuthRequest, res: Response) =
  * Get all sales
  * GET /api/sales
  */
-export const getSales = asyncHandler(async (req: Request, res: Response) => {
+export const getSales = asyncHandler(async (req: AuthRequest, res: Response) => {
   const {
     page = 1,
     limit = 20,
@@ -248,6 +248,11 @@ export const getSales = asyncHandler(async (req: Request, res: Response) => {
   const skip = (pageNum - 1) * limitNum;
 
   const where: any = {};
+
+  // Filter by user's location
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
 
   const dateFilter = createDateFilter(startDate as string, endDate as string);
   if (dateFilter) {
@@ -311,7 +316,7 @@ export const getSales = asyncHandler(async (req: Request, res: Response) => {
  * Get single sale
  * GET /api/sales/:id
  */
-export const getSale = asyncHandler(async (req: Request, res: Response) => {
+export const getSale = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
 
   const sale = await prisma.sale.findUnique({
@@ -340,6 +345,11 @@ export const getSale = asyncHandler(async (req: Request, res: Response) => {
     throw new AppError('Sale not found', 404);
   }
 
+  // Verify user has access to this sale's location
+  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
+    throw new AppError('Sale not found', 404);
+  }
+
   res.json({
     success: true,
     data: sale,
@@ -364,6 +374,11 @@ export const refundSale = asyncHandler(async (req: AuthRequest, res: Response) =
   });
 
   if (!sale) {
+    throw new AppError('Sale not found', 404);
+  }
+
+  // Verify user has access to this sale's location
+  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
     throw new AppError('Sale not found', 404);
   }
 
@@ -483,6 +498,11 @@ export const voidSale = asyncHandler(async (req: AuthRequest, res: Response) => 
     throw new AppError('Sale not found', 404);
   }
 
+  // Verify user has access to this sale's location
+  if (req.user?.locationId && sale.locationId !== req.user.locationId) {
+    throw new AppError('Sale not found', 404);
+  }
+
   if (sale.status === SaleStatus.VOIDED) {
     throw new AppError('Sale already voided', 400);
   }
@@ -549,11 +569,17 @@ export const bulkVoidSales = asyncHandler(async (req: AuthRequest, res: Response
     throw new AppError('Sale IDs array is required', 400);
   }
 
+  // Build where clause with location filter
+  const where: any = {
+    id: { in: saleIds },
+  };
+  if (req.user?.locationId) {
+    where.locationId = req.user.locationId;
+  }
+
   // Fetch all sales to void
   const sales = await prisma.sale.findMany({
-    where: {
-      id: { in: saleIds },
-    },
+    where,
     include: {
       items: true,
     },
@@ -643,11 +669,17 @@ export const bulkRefundSales = asyncHandler(async (req: AuthRequest, res: Respon
     throw new AppError('Sale IDs array is required', 400);
   }
 
+  // Build where clause with location filter
+  const refundWhere: any = {
+    id: { in: saleIds },
+  };
+  if (req.user?.locationId) {
+    refundWhere.locationId = req.user.locationId;
+  }
+
   // Fetch all sales to refund
   const sales = await prisma.sale.findMany({
-    where: {
-      id: { in: saleIds },
-    },
+    where: refundWhere,
     include: {
       items: true,
       customer: true,
