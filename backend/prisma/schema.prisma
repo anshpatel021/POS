@@ -1,0 +1,668 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String              @id @default(uuid())
+  email                String              @unique
+  password             String
+  firstName            String
+  lastName             String
+  role                 UserRole            @default(CASHIER)
+  isActive             Boolean             @default(true)
+  locationId           String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  lastLoginAt          DateTime?
+  failedLoginAttempts  Int                 @default(0)
+  lockoutUntil         DateTime?
+  passwordResetExpires DateTime?
+  passwordResetToken   String?
+  twoFactorBackupCodes String[]            @default([])
+  twoFactorEnabled     Boolean             @default(false)
+  twoFactorSecret      String?
+  activityLogs         ActivityLog[]
+  expenses             Expense[]
+  refreshTokens        RefreshToken[]
+  sales                Sale[]
+  shifts               Shift[]
+  location             Location?           @relation(fields: [locationId], references: [id])
+  recurringExpenses    RecurringExpense[]
+  layaways             Layaway[]
+
+  @@index([email])
+  @@index([locationId])
+  @@index([passwordResetToken])
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid())
+  token      String   @unique
+  userId     String
+  deviceInfo String?
+  ipAddress  String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  isRevoked  Boolean  @default(false)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Location {
+  id                String             @id @default(uuid())
+  name              String
+  address           String
+  city              String
+  state             String
+  zipCode           String
+  country           String             @default("US")
+  phone             String
+  email             String
+  taxRate           Float              @default(0)
+  isActive          Boolean            @default(true)
+  businessHours     Json?
+  currency          String             @default("USD")
+  timezone          String             @default("America/New_York")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  expenses          Expense[]
+  products          Product[]
+  sales             Sale[]
+  shifts            Shift[]
+  users             User[]
+  budgets           Budget[]
+  recurringExpenses RecurringExpense[]
+  layaways          Layaway[]
+
+  @@map("locations")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  color       String?
+  icon        String?
+  parentId    String?
+  sortOrder   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children    Category[] @relation("CategoryHierarchy")
+  products    Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id             String            @id @default(uuid())
+  sku            String            @unique
+  name           String
+  description    String?
+  categoryId     String?
+  cost           Float             @default(0)
+  price          Float
+  compareAtPrice Float?
+  trackInventory Boolean           @default(true)
+  stockQuantity  Int               @default(0)
+  lowStockAlert  Int               @default(10)
+  barcode        String?           @unique
+  image          String?
+  images         Json?
+  isActive       Boolean           @default(true)
+  isTaxable      Boolean           @default(true)
+  allowBackorder Boolean           @default(false)
+  locationId     String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  inventoryLogs  InventoryLog[]
+  suppliers      ProductSupplier[]
+  variants       ProductVariant[]
+  category       Category?         @relation(fields: [categoryId], references: [id])
+  location       Location?         @relation(fields: [locationId], references: [id])
+  saleItems      SaleItem[]
+  layawayItems   LayawayItem[]
+
+  @@index([sku])
+  @@index([barcode])
+  @@index([categoryId])
+  @@index([locationId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id            String   @id @default(uuid())
+  productId     String
+  name          String
+  sku           String   @unique
+  barcode       String?  @unique
+  price         Float?
+  cost          Float?
+  stockQuantity Int      @default(0)
+  options       Json
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([barcode])
+  @@map("product_variants")
+}
+
+model Supplier {
+  id             String            @id @default(uuid())
+  name           String
+  contactName    String?
+  email          String?
+  phone          String?
+  address        String?
+  notes          String?
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  products       ProductSupplier[]
+  purchaseOrders PurchaseOrder[]
+
+  @@map("suppliers")
+}
+
+model ProductSupplier {
+  id          String   @id @default(uuid())
+  productId   String
+  supplierId  String
+  supplierSku String?
+  cost        Float?
+  leadTime    Int?
+  minOrder    Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplier    Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, supplierId])
+  @@map("product_suppliers")
+}
+
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  orderNumber String              @unique
+  supplierId  String
+  status      String              @default("PENDING")
+  totalAmount Float               @default(0)
+  notes       String?
+  orderedAt   DateTime?
+  expectedAt  DateTime?
+  receivedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  items       PurchaseOrderItem[]
+  supplier    Supplier            @relation(fields: [supplierId], references: [id])
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  productId       String
+  sku             String
+  productName     String
+  quantity        Int
+  cost            Float
+  total           Float
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+
+  @@map("purchase_order_items")
+}
+
+model InventoryLog {
+  id          String   @id @default(uuid())
+  productId   String
+  type        String
+  quantity    Int
+  previousQty Int
+  newQty      Int
+  notes       String?
+  userId      String?
+  createdAt   DateTime @default(now())
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([createdAt])
+  @@map("inventory_logs")
+}
+
+model Sale {
+  id            String        @id @default(uuid())
+  saleNumber    String        @unique
+  customerId    String?
+  userId        String
+  locationId    String?
+  subtotal      Float         @default(0)
+  tax           Float         @default(0)
+  discount      Float         @default(0)
+  total         Float         @default(0)
+  paymentMethod PaymentMethod
+  amountPaid    Float         @default(0)
+  changeDue     Float         @default(0)
+  status        SaleStatus    @default(COMPLETED)
+  notes         String?
+  receiptNumber String?
+  receiptEmail  String?
+  shiftId       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  completedAt   DateTime?
+  refundedAt    DateTime?
+  refunds       Refund[]
+  items         SaleItem[]
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  location      Location?     @relation(fields: [locationId], references: [id])
+  shift         Shift?        @relation(fields: [shiftId], references: [id])
+  user          User          @relation(fields: [userId], references: [id])
+
+  @@index([saleNumber])
+  @@index([customerId])
+  @@index([userId])
+  @@index([locationId])
+  @@index([createdAt])
+  @@index([shiftId])
+  @@map("sales")
+}
+
+model SaleItem {
+  id          String   @id @default(uuid())
+  saleId      String
+  productId   String
+  sku         String
+  productName String
+  quantity    Int      @default(1)
+  price       Float
+  discount    Float    @default(0)
+  tax         Float    @default(0)
+  total       Float
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  product     Product  @relation(fields: [productId], references: [id])
+  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([productId])
+  @@map("sale_items")
+}
+
+model Refund {
+  id         String   @id @default(uuid())
+  saleId     String
+  amount     Float
+  reason     String
+  notes      String?
+  refundedBy String
+  createdAt  DateTime @default(now())
+  sale       Sale     @relation(fields: [saleId], references: [id])
+
+  @@index([saleId])
+  @@map("refunds")
+}
+
+model Customer {
+  id             String    @id @default(uuid())
+  email          String?   @unique
+  phone          String    @unique
+  firstName      String
+  lastName       String
+  address        String?
+  city           String?
+  state          String?
+  zipCode        String?
+  country        String?
+  emailMarketing Boolean   @default(false)
+  smsMarketing   Boolean   @default(false)
+  loyaltyPoints  Int       @default(0)
+  totalSpent     Float     @default(0)
+  visitCount     Int       @default(0)
+  notes          String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastVisitAt    DateTime?
+  sales          Sale[]
+  layaways       Layaway[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("customers")
+}
+
+model Shift {
+  id                String    @id @default(uuid())
+  userId            String
+  locationId        String?
+  clockInAt         DateTime
+  clockOutAt        DateTime?
+  startingCash      Float     @default(0)
+  endingCash        Float?
+  expectedCash      Float?
+  cashDifference    Float?
+  totalSales        Float     @default(0)
+  totalTransactions Int       @default(0)
+  isClosed          Boolean   @default(false)
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  sales             Sale[]
+  location          Location? @relation(fields: [locationId], references: [id])
+  user              User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([locationId])
+  @@index([clockInAt])
+  @@map("shifts")
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model Expense {
+  id            String          @id @default(uuid())
+  expenseNumber String          @unique
+  category      ExpenseCategory
+  description   String
+  amount        Float
+  status        ExpenseStatus   @default(PENDING)
+  vendor        String?
+  receiptUrl    String?
+  invoiceNumber String?
+  expenseDate   DateTime        @default(now())
+  dueDate       DateTime?
+  paidDate      DateTime?
+  locationId    String?
+  userId        String
+  approvedBy    String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  location      Location?       @relation(fields: [locationId], references: [id])
+  user          User            @relation(fields: [userId], references: [id])
+
+  @@index([category])
+  @@index([status])
+  @@index([expenseDate])
+  @@index([locationId])
+  @@index([userId])
+  @@map("expenses")
+}
+
+model Setting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("settings")
+}
+
+model TaxRate {
+  id        String   @id @default(uuid())
+  name      String
+  rate      Float
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("tax_rates")
+}
+
+model Discount {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  name        String
+  description String?
+  type        String
+  value       Float
+  minPurchase Float?
+  maxDiscount Float?
+  startDate   DateTime?
+  endDate     DateTime?
+  isActive    Boolean   @default(true)
+  usageLimit  Int?
+  usageCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("discounts")
+}
+
+model Budget {
+  id          String          @id @default(uuid())
+  category    ExpenseCategory
+  amount      Float
+  period      BudgetPeriod    @default(MONTHLY)
+  startDate   DateTime
+  endDate     DateTime?
+  locationId  String?
+  isActive    Boolean         @default(true)
+  alertAt     Float?          // Alert when spending reaches this percentage (e.g., 80)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  location    Location?       @relation(fields: [locationId], references: [id])
+
+  @@unique([category, period, startDate, locationId])
+  @@index([category])
+  @@index([locationId])
+  @@map("budgets")
+}
+
+model RecurringExpense {
+  id            String          @id @default(uuid())
+  description   String
+  category      ExpenseCategory
+  amount        Float
+  vendor        String?
+  frequency     RecurringFrequency
+  dayOfMonth    Int?            // For MONTHLY: which day (1-31)
+  dayOfWeek     Int?            // For WEEKLY: which day (0-6)
+  startDate     DateTime
+  endDate       DateTime?
+  nextDueDate   DateTime
+  locationId    String?
+  userId        String
+  isActive      Boolean         @default(true)
+  lastGenerated DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  location      Location?       @relation(fields: [locationId], references: [id])
+  user          User            @relation(fields: [userId], references: [id])
+
+  @@index([nextDueDate])
+  @@index([category])
+  @@index([locationId])
+  @@map("recurring_expenses")
+}
+
+model Layaway {
+  id              String        @id @default(uuid())
+  layawayNumber   String        @unique
+  customerId      String
+  userId          String
+  locationId      String?
+  subtotal        Float         @default(0)
+  tax             Float         @default(0)
+  total           Float         @default(0)
+  amountPaid      Float         @default(0)
+  balance         Float         @default(0)
+  status          LayawayStatus @default(ACTIVE)
+  expiresAt       DateTime?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  payments        LayawayPayment[]
+  items           LayawayItem[]
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  user            User          @relation(fields: [userId], references: [id])
+  location        Location?     @relation(fields: [locationId], references: [id])
+
+  @@index([customerId])
+  @@index([userId])
+  @@index([status])
+  @@map("layaways")
+}
+
+model LayawayItem {
+  id          String   @id @default(uuid())
+  layawayId   String
+  productId   String
+  sku         String
+  productName String
+  quantity    Int      @default(1)
+  price       Float
+  total       Float
+  createdAt   DateTime @default(now())
+  layaway     Layaway  @relation(fields: [layawayId], references: [id], onDelete: Cascade)
+  product     Product  @relation(fields: [productId], references: [id])
+
+  @@index([layawayId])
+  @@map("layaway_items")
+}
+
+model LayawayPayment {
+  id            String        @id @default(uuid())
+  layawayId     String
+  amount        Float
+  paymentMethod PaymentMethod
+  notes         String?
+  userId        String
+  createdAt     DateTime      @default(now())
+  layaway       Layaway       @relation(fields: [layawayId], references: [id], onDelete: Cascade)
+
+  @@index([layawayId])
+  @@map("layaway_payments")
+}
+
+model AccountingExport {
+  id          String       @id @default(uuid())
+  type        ExportType
+  format      String       // CSV, QBO, XLS
+  startDate   DateTime
+  endDate     DateTime
+  status      String       @default("COMPLETED")
+  fileUrl     String?
+  recordCount Int          @default(0)
+  userId      String
+  createdAt   DateTime     @default(now())
+
+  @@index([type])
+  @@index([createdAt])
+  @@map("accounting_exports")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  CASHIER
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  GIFT_CARD
+  STORE_CREDIT
+  OTHER
+}
+
+enum SaleStatus {
+  COMPLETED
+  PENDING
+  REFUNDED
+  VOIDED
+  HOLD
+}
+
+enum ExpenseCategory {
+  UTILITIES
+  RENT
+  PAYROLL
+  SUPPLIES
+  INVENTORY_PURCHASE
+  MARKETING
+  MAINTENANCE
+  INSURANCE
+  TAXES
+  SHIPPING
+  SOFTWARE
+  EQUIPMENT
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum BudgetPeriod {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum RecurringFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum LayawayStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum ExportType {
+  SALES
+  EXPENSES
+  INVENTORY
+  CUSTOMERS
+  JOURNAL_ENTRIES
+}
