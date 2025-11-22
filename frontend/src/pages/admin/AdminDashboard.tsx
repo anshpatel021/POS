@@ -24,7 +24,6 @@ import {
   RotateCcw,
   Wallet,
   UserPlus,
-  PackageX,
 } from 'lucide-react';
 import {
   BarChart,
